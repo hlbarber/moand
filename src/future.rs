@@ -2,11 +2,11 @@ use std::future::{ready, Future, Ready};
 
 use futures_util::{future, FutureExt};
 
-use crate::{Collection, Flatten, Functor, Member};
+use crate::{FMap, Functor, Join, Monad, TypeConstructor};
 
-pub struct FutureMonad;
+pub struct _Future;
 
-impl Collection for FutureMonad {
+impl TypeConstructor for _Future {
     type Unit<T> = Ready<T>;
 
     fn unit<T>(item: T) -> Self::Unit<T> {
@@ -14,34 +14,36 @@ impl Collection for FutureMonad {
     }
 }
 
-impl<Fut> Member<FutureMonad> for Fut
+impl<Fut> Functor<_Future> for Fut
 where
     Fut: Future,
 {
     type Item = Fut::Output;
 }
 
-impl<Fut> Flatten<FutureMonad> for Fut
+impl<Fut> Join<_Future> for Fut
 where
     Fut: Future,
     Fut::Output: Future,
 {
-    type Flattened = future::Flatten<Self>;
+    type Joined = future::Flatten<Self>;
 
-    fn flatten(self) -> Self::Flattened {
-        future::FutureExt::flatten(self)
+    fn join(self) -> Self::Joined {
+        self.flatten()
     }
 }
 
-impl<F, Fut, Output> Functor<FutureMonad, F> for Fut
+impl<Fut> Monad<_Future> for Fut where Fut: Future {}
+
+impl<F, Fut, Output> FMap<_Future, Fut> for F
 where
     Fut: Future,
     F: FnOnce(Fut::Output) -> Output,
 {
     type Mapped = future::Map<Fut, F>;
 
-    fn map(self, f: F) -> Self::Mapped {
-        FutureExt::map(self, f)
+    fn map(self, fut: Fut) -> Self::Mapped {
+        FutureExt::map(fut, self)
     }
 }
 
@@ -49,10 +51,11 @@ where
 mod tests {
     #![no_implicit_prelude]
 
-    use crate::{Flatten, FunctorExt};
+    use crate::{Monad, MonadExt};
 
-    fn _check() {
-        let fut = async { async { "hey" } };
-        let _ = fut.flatten().flat_map(|x| async move { x });
+    async fn _check() {
+        let fut = async { async { 3 } };
+        let _fut = fut.join().bind(|x| async move { x });
+        let _output = _fut.await;
     }
 }

@@ -6,66 +6,104 @@ pub use future::*;
 pub use iterator::*;
 pub use option::*;
 
-/// A marker trait for a collections.
-pub trait Collection: Sized {
-    type Unit<T>: Member<Self, Item = T>;
+/// A marker trait for the type constructor of a collection.
+pub trait TypeConstructor: Sized {
+    type Unit<T>: Functor<Self, Item = T>;
 
     fn unit<T>(item: T) -> Self::Unit<T>;
 }
 
-/// A marker trait for a member of a collection.
-pub trait Member<C: Collection> {
+pub trait FMap<C, Object>
+where
+    Object: Functor<C>,
+{
+    type Mapped: Functor<C>;
+
+    fn map(self, object: Object) -> Self::Mapped;
+}
+
+/// A member of a collection.
+pub trait Functor<C> {
+    /// The inner collection type.
     type Item;
-}
 
-/// Provides a `map` function for items in a collection.
-pub trait Functor<C, F>: Member<C>
-where
-    C: Collection,
-    F: FnOnce(Self::Item) -> <Self::Mapped as Member<C>>::Item,
-{
-    type Mapped: Member<C>;
-
-    fn map(self, f: F) -> Self::Mapped;
-}
-
-/// The flatten operation on monads.
-pub trait Flatten<M>: Member<M>
-where
-    Self::Item: Member<M>,
-    M: Collection,
-{
-    type Flattened: Member<M, Item = <Self::Item as Member<M>>::Item>;
-
-    fn flatten(self) -> Self::Flattened;
-}
-
-pub trait FunctorExt<C, F>: Functor<C, F>
-where
-    C: Collection,
-    F: FnOnce(Self::Item) -> <Self::Mapped as Member<C>>::Item,
-{
-    fn flat_map(self, f: F) -> <Self::Mapped as Flatten<C>>::Flattened
+    /// Applies a map to a collection.
+    fn map<F>(self, f: F) -> F::Mapped
     where
-        <Self::Mapped as Member<C>>::Item: Member<C>,
-        Self::Mapped: Flatten<C>,
+        F: FMap<C, Self>,
         Self: Sized,
     {
-        Functor::map(self, f).flatten()
+        FMap::map(f, self)
     }
 }
 
-impl<C, F, T> FunctorExt<C, F> for T
+pub trait Join<C> {
+    type Joined: Functor<C>;
+
+    fn join(self) -> Self::Joined;
+}
+
+/// A member of a monad.
+pub trait Monad<C>: Functor<C> {
+    fn join(self) -> Self::Joined
+    where
+        Self: Join<C>,
+        Self: Sized,
+    {
+        Join::join(self)
+    }
+}
+
+pub trait MonadExt<C>: Monad<C>
 where
-    T: Functor<C, F>,
-    F: FnOnce(Self::Item) -> <Self::Mapped as Member<C>>::Item,
-    C: Collection,
+    C: TypeConstructor,
 {
+    fn bind<F>(self, f: F) -> <F::Mapped as Join<C>>::Joined
+    where
+        F: FMap<C, Self>,
+        F::Mapped: Join<C>,
+        Self: Sized,
+    {
+        self.map(f).join()
+    }
+}
+
+impl<C, T> MonadExt<C> for T
+where
+    C: TypeConstructor,
+    T: Monad<C>,
+{
+}
+
+#[macro_export]
+macro_rules! du {
+    ($binding:ident <- $e:expr ; $($t:tt)*) => {
+        $e.bind(move |$binding| { du! { $($t)* } })
+    };
+    ($binding:pat = $e:expr ; $($t:tt)*) => {
+        {
+            let $binding = $e;
+            du!($($t)*)
+        }
+    };
+    ($final:expr) => { $final };
 }
 
 #[cfg(test)]
 mod tests {
-    fn _check<M: () {
+    use crate::{MonadExt, TypeConstructor, _Future};
 
+    fn _concat() {
+        fn foo() -> <M as TypeConstructor>::Unit<u32> {
+            M::unit(3)
+        }
+
+        type M = _Future;
+        let _result = du! {
+            x <- foo();
+            y <- M::unit(2);
+            z = M::unit(x + y);
+            z
+        };
     }
 }
